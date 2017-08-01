@@ -1,6 +1,6 @@
 #pragma once
 
-#include <metal.hpp>
+#include <metal.hpp> // https://github.com/brunocodutra/metal
 
 namespace muse {
     template <std::size_t I, template <typename...> class InjectClass, typename... Args>
