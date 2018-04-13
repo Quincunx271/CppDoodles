@@ -39,8 +39,6 @@ namespace ns {
 // For templates, it needs the `template` keyword: `MEM_FREF(std::template vector<int>)`.
 // Better would be `MEM_FREF(size)` for both; it works for any type that has a `.size()` member
 // or even just `.size` member
-//
-// Not SFINAE friendly or noexcept-aware, as lambdas can't be in unevaluated contexts.
 #define FWD(...) ::std::forward<decltype(__VA_ARGS__)>(__VA_ARGS__)
 
 #define CALL_FWD_ARGS (FWD(args)...)
@@ -73,43 +71,20 @@ namespace ns {
     }
 
 #define MEM_FREF(...)                                                                       \
-    [](auto&&... args)                                                                      \
-        /* Not allowed; lambda in unevaluated context (maybe C++20?) */                     \
-        /* noexcept(noexcept(                                                               \
-            ::boost::hana::overload_linearly(                                               \
-                MEM_FREF_CALL_NORMAL(CALL_FWD_ARGS, __VA_ARGS__),                           \
-                MEM_FREF_CALL_REF_WRAP(CALL_FWD_ARGS, __VA_ARGS__),                         \
-                MEM_FREF_CALL_DEREF(CALL_FWD_ARGS, __VA_ARGS__),                            \
-                MEM_FREF_CALL_NORMAL(, __VA_ARGS__),                                        \
-                MEM_FREF_CALL_DEREF(, __VA_ARGS__)                                          \
-            )(FWD(args)...)                                                                 \
-        ))                                                                                  \
-        -> decltype(                                                                        \
-            ::boost::hana::overload_linearly(                                               \
-                MEM_FREF_CALL_NORMAL(CALL_FWD_ARGS, __VA_ARGS__),                           \
-                MEM_FREF_CALL_REF_WRAP(CALL_FWD_ARGS, __VA_ARGS__),                         \
-                MEM_FREF_CALL_DEREF(CALL_FWD_ARGS, __VA_ARGS__),                            \
-                MEM_FREF_CALL_NORMAL(, __VA_ARGS__),                                        \
-                MEM_FREF_CALL_DEREF(, __VA_ARGS__)                                          \
-            )(FWD(args)...)                                                                 \
-        ) */                                                                                \
-    {                                                                                       \
-        return ::boost::hana::overload_linearly(                                            \
-            MEM_FREF_CALL_NORMAL(CALL_FWD_ARGS, __VA_ARGS__),                               \
-            MEM_FREF_CALL_REF_WRAP(CALL_FWD_ARGS, __VA_ARGS__),                             \
-            MEM_FREF_CALL_DEREF(CALL_FWD_ARGS, __VA_ARGS__),                                \
-            MEM_FREF_CALL_NORMAL(, __VA_ARGS__),                                            \
-            MEM_FREF_CALL_REF_WRAP(, __VA_ARGS__),                                          \
-            MEM_FREF_CALL_DEREF(, __VA_ARGS__)                                              \
-        )(FWD(args)...);                                                                    \
-    }
+    ::boost::hana::overload_linearly(                                                       \
+        MEM_FREF_CALL_NORMAL(CALL_FWD_ARGS, __VA_ARGS__),                                   \
+        MEM_FREF_CALL_REF_WRAP(CALL_FWD_ARGS, __VA_ARGS__),                                 \
+        MEM_FREF_CALL_DEREF(CALL_FWD_ARGS, __VA_ARGS__),                                    \
+        MEM_FREF_CALL_NORMAL(, __VA_ARGS__),                                                \
+        MEM_FREF_CALL_DEREF(, __VA_ARGS__)                                                  \
+    )
 
 // #include <algorithm>
 // #include <string>
 // #include <initializer_list>
 // #include <vector>
 // #include <array>
-
+//
 // int main() {
 //     auto f = MEM_FREF(size);
 //     auto myMin = FREF(std::min);
