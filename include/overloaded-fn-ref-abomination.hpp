@@ -2,7 +2,7 @@
 #include <type_traits>
 #include <utility>
 
-#include <boost/hana/type.hpp>
+#include <boost/hana.hpp>
 
 // Function reference. Similar to what I'd expect `[]someFunction` to do
 // if the proposal goes through. The intention of this is to lift an
@@ -19,89 +19,102 @@
         ;}
 
 namespace ns {
-    template <class T>
+    template <typename T>
     struct is_reference_wrapper
         : std::false_type
     {};
-    template <class U>
-    struct is_reference_wrapper<std::reference_wrapper<U>>
+    template <typename... Ts>
+    struct is_reference_wrapper<std::reference_wrapper<Ts...>>
         : std::true_type
     {};
-
-    template <typename HanaType>
-    auto declval(HanaType type)
-        -> typename HanaType::type&&;
 }
 
 // Lift member function overload sets into lambdas, with `std::invoke`-like behaviour. The problem
 // is that we can't use `std::invoke` because our function can't be a function object (overloads).
-// Current defect: no support for just member data pointers
 //
 // Calling syntax: stuff like `MEM_FREF(std::string::size)` is valid because
-// `myString.std::string::size()` is valid.
+// `myString.std::string::size()` is valid, but it probably doesn't work for data members -
+// I'm not sure if `myString.my::namespace_::size` would work.
+//
 // For templates, it needs the `template` keyword: `MEM_FREF(std::template vector<int>)`.
 // Better would be `MEM_FREF(size)` for both; it works for any type that has a `.size()` member
+// or even just `.size` member
 //
-// Not SFINAE friendly or noexcept-aware. The code bloat for implementing those
-// would be quite large.
-//
-// Also note that `call_ref_wrapper` and `call_ptr` can be implemented in terms of `call_normal`,
-// but it's not much better
-#define MEM_FREF(...)                                                                               \
-    [](auto&&... args) {                                                                            \
-        constexpr auto call_normal =                                                                \
-            [](auto&& arg0, auto&&... args)                                                         \
-                -> decltype(std::forward<decltype(arg0)>(arg0)                                      \
-                                .__VA_ARGS__(std::forward<decltype(args)>(args)...))                \
-            {                                                                                       \
-                return std::forward<decltype(arg0)>(arg0)                                           \
-                                .__VA_ARGS__(std::forward<decltype(args)>(args)...);                \
-            };                                                                                      \
-        constexpr auto can_call_normal = ::boost::hana::is_valid(                                   \
-            [](auto arg0, auto... args)                                                             \
-                -> std::void_t<decltype(ns::declval(arg0).__VA_ARGS__(ns::declval(args)...))>       \
-            {});                                                                                    \
-                                                                                                    \
-        constexpr auto call_ref_wrapper =                                                           \
-            [](auto&& arg0, auto&&... args)                                                         \
-                -> decltype(arg0.get().__VA_ARGS__(std::forward<decltype(args)>(args)...))          \
-            {                                                                                       \
-                return arg0.get().__VA_ARGS__(std::forward<decltype(args)>(args)...);               \
-            };                                                                                      \
-        constexpr auto can_call_ref_wrapper =                                                       \
-            [](auto arg0, auto...) {                                                                \
-                return ns::is_reference_wrapper<std::decay_t<typename decltype(arg0)::type>>::value;\
-            };                                                                                      \
-                                                                                                    \
-        constexpr auto call_ptr =                                                                   \
-            [](auto&& arg0, auto&&... args) {                                                       \
-                return (*arg0).__VA_ARGS__(std::forward<decltype(args)>(args)...);                  \
-            };                                                                                      \
-                                                                                                    \
-        /* late so that it doesn't catch anything in the __VA_ARGS__ */                             \
-        namespace hana = boost::hana;                                                               \
-                                                                                                    \
-        if constexpr (                                                                              \
-                can_call_normal(hana::type_c<decltype(args)>...)) {                                 \
-            return call_normal(std::forward<decltype(args)>(args)...);                              \
-        } else if constexpr(can_call_ref_wrapper(hana::type_c<decltype(args)>...)) {                \
-            return call_ref_wrapper(std::forward<decltype(args)>(args)...);                         \
-        } else {                                                                                    \
-            return call_ptr(std::forward<decltype(args)>(args)...);                                 \
-        }                                                                                           \
+// Not SFINAE friendly or noexcept-aware, as lambdas can't be in unevaluated contexts.
+#define FWD(...) ::std::forward<decltype(__VA_ARGS__)>(__VA_ARGS__)
+
+#define CALL_FWD_ARGS (FWD(args)...)
+
+#define MEM_FREF_CALL_NORMAL(CALL, ...)                                                     \
+    [](auto&& arg0, auto&&... args)                                                         \
+           noexcept(noexcept(FWD(arg0).__VA_ARGS__ CALL))                                   \
+        -> decltype(FWD(arg0).__VA_ARGS__ CALL)                                             \
+    {                                                                                       \
+        return FWD(arg0).__VA_ARGS__ CALL;                                                  \
+    }
+
+#define MEM_FREF_CALL_REF_WRAP(CALL, ...)                                                   \
+    [](auto&& arg0, auto&&... args)                                                         \
+           noexcept(noexcept(arg0.get().__VA_ARGS__ CALL))                                  \
+        -> std::enable_if_t<                                                                \
+               ns::is_reference_wrapper<std::decay_t<decltype(arg0)>>::value,               \
+               decltype(arg0.get().__VA_ARGS__ CALL)                                        \
+           >                                                                                \
+    {                                                                                       \
+        return arg0.get().__VA_ARGS__ CALL;                                                 \
+    }
+
+#define MEM_FREF_CALL_DEREF(CALL, ...)                                                      \
+    [](auto&& arg0, auto&&... args)                                                         \
+           noexcept(noexcept((*FWD(arg0)).__VA_ARGS__ CALL))                                \
+        -> decltype((*FWD(arg0)).__VA_ARGS__ CALL)                                          \
+    {                                                                                       \
+        return (*FWD(arg0)).__VA_ARGS__ CALL;                                               \
+    }
+
+#define MEM_FREF(...)                                                                       \
+    [](auto&&... args)                                                                      \
+        /* Not allowed; lambda in unevaluated context (maybe C++20?) */                     \
+        /* noexcept(noexcept(                                                               \
+            ::boost::hana::overload_linearly(                                               \
+                MEM_FREF_CALL_NORMAL(CALL_FWD_ARGS, __VA_ARGS__),                           \
+                MEM_FREF_CALL_REF_WRAP(CALL_FWD_ARGS, __VA_ARGS__),                         \
+                MEM_FREF_CALL_DEREF(CALL_FWD_ARGS, __VA_ARGS__),                            \
+                MEM_FREF_CALL_NORMAL(, __VA_ARGS__),                                        \
+                MEM_FREF_CALL_DEREF(, __VA_ARGS__)                                          \
+            )(FWD(args)...)                                                                 \
+        ))                                                                                  \
+        -> decltype(                                                                        \
+            ::boost::hana::overload_linearly(                                               \
+                MEM_FREF_CALL_NORMAL(CALL_FWD_ARGS, __VA_ARGS__),                           \
+                MEM_FREF_CALL_REF_WRAP(CALL_FWD_ARGS, __VA_ARGS__),                         \
+                MEM_FREF_CALL_DEREF(CALL_FWD_ARGS, __VA_ARGS__),                            \
+                MEM_FREF_CALL_NORMAL(, __VA_ARGS__),                                        \
+                MEM_FREF_CALL_DEREF(, __VA_ARGS__)                                          \
+            )(FWD(args)...)                                                                 \
+        ) */                                                                                \
+    {                                                                                       \
+        return ::boost::hana::overload_linearly(                                            \
+            MEM_FREF_CALL_NORMAL(CALL_FWD_ARGS, __VA_ARGS__),                               \
+            MEM_FREF_CALL_REF_WRAP(CALL_FWD_ARGS, __VA_ARGS__),                             \
+            MEM_FREF_CALL_DEREF(CALL_FWD_ARGS, __VA_ARGS__),                                \
+            MEM_FREF_CALL_NORMAL(, __VA_ARGS__),                                            \
+            MEM_FREF_CALL_DEREF(, __VA_ARGS__)                                              \
+        )(FWD(args)...);                                                                    \
     }
 
 // #include <algorithm>
 // #include <string>
 // #include <initializer_list>
 // #include <vector>
+// #include <array>
 
 // int main() {
 //     auto f = MEM_FREF(size);
 //     auto myMin = FREF(std::min);
-
-//     std::string test = "Hello, world!\n"; // size() == 14
-//     std::array foo = {1, 2, 3, 4, 5};     // size() == 5
+//
+//     std::string test = "Hello, world!\n";     // size() == 14
+//     std::array<int, 5> foo = {1, 2, 3, 4, 5}; // size() == 5
 //     return f(test) + f(foo)                                // 14 + 5 = 19
 //         + MEM_FREF(std::string::size)(test)                // + 14
 //         + MEM_FREF(std::template array<int, 5>::size)(foo) // + 5 = 38
