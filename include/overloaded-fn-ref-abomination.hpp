@@ -99,6 +99,7 @@ namespace ns {
             MEM_FREF_CALL_REF_WRAP(CALL_FWD_ARGS, __VA_ARGS__),                             \
             MEM_FREF_CALL_DEREF(CALL_FWD_ARGS, __VA_ARGS__),                                \
             MEM_FREF_CALL_NORMAL(, __VA_ARGS__),                                            \
+            MEM_FREF_CALL_REF_WRAP(, __VA_ARGS__),                                          \
             MEM_FREF_CALL_DEREF(, __VA_ARGS__)                                              \
         )(FWD(args)...);                                                                    \
     }
