@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+
+# Usage: ctest <your args to ctest> | ctest-filt
+# Filters out "Test ## Passed" and "Start ##" messages from ctest
+
+grep -E -v 'Test\s+#[0-9]+.*Passed.*sec|Start\s+[0-9]+:'
