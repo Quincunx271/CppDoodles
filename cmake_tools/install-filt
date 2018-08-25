@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+
+# Usage: make install | install-filt
+# Filters out "Up to date" install messages
+grep -E -v '^-- Up-to-date: '
