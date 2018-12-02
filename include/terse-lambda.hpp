@@ -1,5 +1,7 @@
 #pragma once
 
+// This doodle has been pulled out into a proper repo: https://github.com/Quincunx271/TerseLambda
+
 #include <utility>
 
 #include <boost/preprocessor/arithmetic/inc.hpp>
